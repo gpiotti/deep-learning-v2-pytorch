@@ -27,26 +27,38 @@ if __name__ =='__main__':
     
     use_cuda = torch.cuda.is_available()
 
-    transform = transforms.Compose([
+    transform_train = transforms.Compose([
         transforms.CenterCrop((224,224)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomPerspective(),
         transforms.RandomRotation(30),
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    ])
-        
-    train_data = CustomDataset('dogImages/train', transform)
-    valid_data = CustomDataset('dogImages/valid', transform)
-    test_data = CustomDataset('dogImages/test', transform)
+        transforms.RandomErasing(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225])    
+        ])
+
+    transform_valid = transforms.Compose([
+        transforms.CenterCrop((224,224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225])
+        ])
 
 
-    batch_size = 16
+    train_data = CustomDataset('dogImages/train', transform_train)
+    valid_data = CustomDataset('dogImages/valid', transform_valid)
+    test_data = CustomDataset('dogImages/test', transform_valid)
+
+
+    batch_size = 64
     num_workers = 5
     dataloader_train = DataLoader(train_data, batch_size=batch_size,
                             shuffle=True, num_workers=num_workers)
     dataloader_valid= DataLoader(valid_data, batch_size=batch_size,
-                            shuffle=True, num_workers=num_workers)  
+                            shuffle=False, num_workers=num_workers)  
     dataloader_test = DataLoader(test_data, batch_size=batch_size,
-                            shuffle=True, num_workers=num_workers)  
+                            shuffle=False, num_workers=num_workers)  
 
     # define the CNN architecture
     class Net(nn.Module):
@@ -54,27 +66,23 @@ if __name__ =='__main__':
         def __init__(self):
             super(Net, self).__init__()
             ## Define layers of a CNN 
-            self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, padding=1) # in: 3x224x224 out: 8x112x112
-            self.conv2 = nn.Conv2d(16, 32, 3, padding=1) # in: 8x112x112 out:16x56x56
-            self.conv3 = nn.Conv2d(32, 64, 3, padding=1) # in: 16x56x56 out: 24x28x28
-            self.conv4 = nn.Conv2d(64, 128, 3, padding=1) # in: 24x28x28 out: 32x14x14
-            self.conv5 = nn.Conv2d(128, 256, 3, padding=1) # in: 32x14x14 out: 64x7x7
+            self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, padding=1) # in: 3x224x224 out: 32x112x112
+            self.conv2 = nn.Conv2d(32, 64, 3, padding=1) # in: 32x112x112 out:64x56x56
+            self.conv3 = nn.Conv2d(64, 128, 3, padding=1) # in: 64x56x56 out: 128x28x28
             self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
-            self.fc1 = nn.Linear(in_features=256 * 7 * 7, out_features=512)
+            self.fc1 = nn.Linear(in_features=128 * 28 * 28, out_features=512)
             self.fc2 = nn.Linear(512, 133)
-            self.dropout = nn.Dropout(p=0.3)
+            self.dropout = nn.Dropout(p=0.5)
         
         def forward(self, x):
             ## Define forward behavior
             x = self.pool1(F.relu(self.conv1(x)))
             x = self.pool1(F.relu(self.conv2(x)))
             x = self.pool1(F.relu(self.conv3(x)))
-            x = self.pool1(F.relu(self.conv4(x)))
-            x = self.pool1(F.relu(self.conv5(x)))
+            x = self.dropout(x)
             # flatten image input
-            x = x.view(-1, 256 * 7 * 7)
+            x = x.view(-1, 128 * 28 * 28)
             # add dropout layer
-            #x = self.dropout(x)
             x = F.relu(self.fc1(x))
             x = self.dropout(x)
             x = self.fc2(x)
@@ -92,7 +100,7 @@ if __name__ =='__main__':
     criterion_scratch = nn.CrossEntropyLoss()
 
     ### TODO: select optimizer
-    optimizer_scratch = optim.SGD(model_scratch.parameters(), lr=0.1)
+    optimizer_scratch = optim.SGD(model_scratch.parameters(), lr=0.05)
 
     def train(n_epochs, loaders, model, optimizer, criterion, use_cuda, save_path):
         """returns trained model"""
@@ -144,8 +152,8 @@ if __name__ =='__main__':
              ## TODO: save the model if validation loss has decreased
             if valid_loss < valid_loss_min:
                 valid_loss_min = valid_loss
-                torch.save(model.state_dict(), save_path)
-            
+            torch.save(model.state_dict(), save_path)  
+
         # return trained model
         return model
 
@@ -153,14 +161,14 @@ if __name__ =='__main__':
                        'valid': dataloader_valid,
                        'test': dataloader_test}
     # train the model
-    model_scratch = train(100,
-                          loaders_scratch,
-                          model_scratch,
-                          optimizer_scratch, 
-                          criterion_scratch,
-                          use_cuda,
-                          'model_scratch.pt')
-    model_scratch.load_state_dict(torch.load('model_scratch.pt'))
+    # model_scratch = train(100,
+    #                       loaders_scratch,
+    #                       model_scratch,
+    #                       optimizer_scratch, 
+    #                       criterion_scratch,
+    #                       use_cuda,
+    #                       'model_scratch.pt')
+    # model_scratch.load_state_dict(torch.load('model_scratch.pt'))
 
 
 
@@ -194,7 +202,7 @@ if __name__ =='__main__':
             100. * correct / total, correct, total))
 
     # call test function    
-    test(loaders_scratch, model_scratch, criterion_scratch, use_cuda)
+    #test(loaders_scratch, model_scratch, criterion_scratch, use_cuda)
 
 
 
@@ -211,8 +219,8 @@ if __name__ =='__main__':
     # test_data = CustomDataset('dogImages/test', transform)
 
 
-    # batch_size = 64
-    # num_workers = 5
+    batch_size = 64
+    num_workers = 5
     # dataloader_train = DataLoader(train_data, batch_size=batch_size,
     #                         shuffle=True, num_workers=num_workers)
     # dataloader_valid= DataLoader(valid_data, batch_size=batch_size,
@@ -220,45 +228,45 @@ if __name__ =='__main__':
     # dataloader_test = DataLoader(test_data, batch_size=batch_size,
     #                         shuffle=True, num_workers=num_workers) 
 
-    # loaders_transfer = {'train': dataloader_train,
-    #                     'valid': dataloader_valid,
-    #                     'test': dataloader_test}
+    loaders_transfer = {'train': dataloader_train,
+                        'valid': dataloader_valid,
+                        'test': dataloader_test}
 
 
-    # ## TODO: Specify model architecture 
-    # model_transfer = models.vgg16(pretrained=True)
-    # # Prevent weights from being updated
-    # for param in model_transfer.features.parameters():
-    #     param.requires_grad = False
+    ## TODO: Specify model architecture 
+    model_transfer = models.vgg16(pretrained=True)
+    # Prevent weights from being updated
+    for param in model_transfer.features.parameters():
+        param.requires_grad = False
         
-    # print("in_features: ", model_transfer.classifier[6].in_features) 
-    # print("out_features: ", model_transfer.classifier[6].out_features) 
+    print("in_features: ", model_transfer.classifier[6].in_features) 
+    print("out_features: ", model_transfer.classifier[6].out_features) 
 
-    # n_inputs = model_transfer.classifier[6].in_features
-    # last_layer = nn.Linear(n_inputs, 133) # This has required_grad=True by default
-    # model_transfer.classifier[6] = last_layer
+    n_inputs = model_transfer.classifier[6].in_features
+    last_layer = nn.Linear(n_inputs, 133) # This has required_grad=True by default
+    model_transfer.classifier[6] = last_layer
 
-    # print("out_features: ", model_transfer.classifier[6].out_features) 
+    print("out_features: ", model_transfer.classifier[6].out_features) 
 
     
-    # model_transfer = model_transfer.cuda()
+    model_transfer = model_transfer.cuda()
 
 
-    # criterion_transfer = nn.CrossEntropyLoss()
-    # optimizer_transfer = optim.SGD(model_transfer.parameters(), lr=0.1)
+    criterion_transfer = nn.CrossEntropyLoss()
+    optimizer_transfer = optim.SGD(model_transfer.parameters(), lr=0.05)
 
+    model_transfer.load_state_dict(torch.load('model_transfer.pt'))
+    # train the model
+    model_transfer = train(5,
+                           loaders_transfer,
+                           model_transfer,
+                           optimizer_transfer,
+                           criterion_transfer,
+                           use_cuda,
+                           'model_transfer.pt')
 
-    # # train the model
-    # model_transfer = train(5,
-    #                        loaders_transfer,
-    #                        model_transfer,
-    #                        optimizer_transfer,
-    #                        criterion_transfer,
-    #                        use_cuda,
-    #                        'model_transfer.pt')
+    # load the model that got the best validation accuracy (uncomment the line below)
+    model_transfer.load_state_dict(torch.load('model_transfer.pt'))
 
-    # # load the model that got the best validation accuracy (uncomment the line below)
-    # model_transfer.load_state_dict(torch.load('model_transfer.pt'))
-
-    # test(loaders_transfer, model_transfer, criterion_transfer, use_cuda)
+    test(loaders_transfer, model_transfer, criterion_transfer, use_cuda)
 
